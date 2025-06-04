@@ -149,13 +149,17 @@ pub fn main() !void {
 
     const a: f32 = 10;
 
-    const d_y = try cl.createBufferWithData(f32, context, .{ .read_write = true }, y);
-    const d_x = try cl.createBufferWithData(f32, context, .{ .read_only = true }, x);
+    const d_y = try cl.svmAlloc(f32, context, .{ .read_write = true, .fine_grain_buffer = true }, size, 0);
+    defer cl.svmFree(context, d_y.ptr);
+    const d_x = try cl.svmAlloc(f32, context, .{ .read_only = true, .fine_grain_buffer = true }, size, 0);
+    defer cl.svmFree(context, d_x.ptr);
+    std.mem.copy(f32, d_y[0..size], y);
+    std.mem.copy(f32, d_x[0..size], x);
 
     std.log.info("launching kernel...", .{});
 
-    try kernel.setArg(@TypeOf(d_y), 0, d_y);
-    try kernel.setArg(@TypeOf(d_x), 1, d_x);
+    try cl.setKernelArgSVMPointer(kernel, 0, d_y.ptr);
+    try cl.setKernelArgSVMPointer(kernel, 1, d_x.ptr);
     try kernel.setArg(f32, 2, a);
 
     const saxpy_complete = try queue.enqueueNDRangeKernel(
@@ -167,17 +171,8 @@ pub fn main() !void {
     );
     defer saxpy_complete.release();
 
-    const read_complete = try queue.enqueueReadBuffer(
-        f32,
-        d_y,
-        false,
-        0,
-        results,
-        &.{saxpy_complete},
-    );
-    defer read_complete.release();
-
-    try cl.waitForEvents(&.{read_complete});
+    try cl.waitForEvents(&.{saxpy_complete});
+    std.mem.copy(f32, results, d_y[0..size]);
 
     std.log.info("checking results...", .{});
 
