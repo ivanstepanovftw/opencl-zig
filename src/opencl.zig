@@ -818,3 +818,37 @@ pub fn createBuffer(comptime T: type, context: Context, flags: MemFlags, size: u
 pub fn createBufferWithData(comptime T: type, context: Context, flags: MemFlags, data: []const T) !Buffer(T) {
     return try Buffer(T).createWithData(context, flags, data);
 }
+
+pub const SVMFlags = packed struct(c.cl_svm_mem_flags) {
+    read_write: bool = false,
+    write_only: bool = false,
+    read_only: bool = false,
+    _reserved0: u7 = 0,
+    fine_grain_buffer: bool = false,
+    atomics: bool = false,
+    kernel_read_and_write: bool = false,
+    _unused: u51 = 0,
+};
+
+pub fn svmAlloc(comptime T: type, context: Context, flags: SVMFlags, len: usize, alignment: uint) ![]T {
+    const ptr = c.clSVMAlloc(context.handle, @bitCast(flags), len * @sizeOf(T), alignment);
+    if (ptr == null) return error.OutOfMemory;
+    return @as([*]T, @ptrCast(ptr))[0..len];
+}
+
+pub fn svmFree(context: Context, ptr: *anyopaque) void {
+    c.clSVMFree(context.handle, ptr);
+}
+
+pub fn setKernelArgSVMPointer(kernel: Kernel, index: uint, ptr: *anyopaque) !void {
+    return switch (c.clSetKernelArgSVMPointer(kernel.handle, index, ptr)) {
+        c.CL_SUCCESS => {},
+        c.CL_INVALID_KERNEL => unreachable,
+        c.CL_INVALID_ARG_INDEX => unreachable,
+        c.CL_INVALID_ARG_VALUE => unreachable,
+        c.CL_INVALID_ARG_SIZE => unreachable,
+        c.CL_OUT_OF_RESOURCES => error.OutOfResources,
+        c.CL_OUT_OF_HOST_MEMORY => error.OutOfMemory,
+        else => @panic("Undocumented error"),
+    };
+}
